@@ -1,51 +1,59 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <unistd.h>
-
-#define MAX_FILE_SIZE (500 * 1024 * 1024)
 
 int main() {
-    int output_file = open("output.txt", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-    ftruncate(output_file, MAX_FILE_SIZE);
+    int random_fd = open("/dev/random", O_RDONLY);
+    int text_fd = open("text.txt", O_CREAT | O_RDWR | O_TRUNC, 0666);
+ 
+    long page_size = sysconf(_SC_PAGESIZE);
+    long chunk_size = page_size * 1024;
 
-    char *file_data = mmap(NULL, MAX_FILE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, output_file, 0);
+    char *buffer = (char *)malloc(chunk_size);
+  
 
-    close(output_file);
-
-    int random_data_file = open("/dev/random", O_RDONLY);
-    int capital_count = 0;
-    int char_count = 0;
-
-    while (char_count < MAX_FILE_SIZE) {
-        char random_buffer;
-        ssize_t bytes_read = read(random_data_file, &random_buffer, sizeof(random_buffer));
-
+    off_t file_size = 500 * 1024 * 1024;
+    ftruncate(text_fd, file_size);
+    struct stat file_stat;
+    fstat(text_fd, &file_stat);
+    char *file_ptr = mmap(NULL, file_stat.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, text_fd, 0);
+ int count = 0;
+    long offset = 0;
+    while (offset < file_size) {
+        ssize_t bytes_read = read(random_fd, buffer, chunk_size);
         if (bytes_read == -1) {
             perror("Failed to read from /dev/random");
-            close(random_data_file);
-            munmap(file_data, MAX_FILE_SIZE);
-            exit(EXIT_FAILURE);
+            exit(1);
         }
 
-        if (isprint((unsigned char)random_buffer)) {
-            if (isupper(random_buffer)) {
-                capital_count++;
-                random_buffer = tolower(random_buffer);
+        for (ssize_t i = 0; i < bytes_read; i++) {
+            if (isprint(buffer[i])) {
+             if (isupper(buffer[i])){
+              count++;
+             }
+                file_ptr[offset] = tolower(buffer[i]);
+                offset++;
             }
-
-            file_data[char_count] = random_buffer;
-            char_count++;
+            if (offset >= file_size) {
+                break;
+            }
+            
+   if (offset % 1024 == 0){
+    file_ptr[offset] = '\n'; 
+   }
         }
     }
 
-    close(random_data_file);
-    munmap(file_data, MAX_FILE_SIZE);
-
-    printf("Number of capital letters: %d\n", capital_count);
+   munmap(file_ptr, file_stat.st_size);
+ printf("%d ", count);
+    close(random_fd);
+    close(text_fd);
+ 
 
     return 0;
 }
